@@ -1,0 +1,132 @@
+2014-5-12 
+
+David
+
+bioinformatics pipeline for PMACs cluster including job script IDs for MOUSE EXOME SEQ 
+for SNP id
+
+appropriate job script for submission follows # symbol (e.g. # fastqc_jobscript.sh)
+job scripts have been written in Bash .sh format - you can easily do this with Perl, Python, etc.
+
+as example: all fq files have 'X_1' or 'X_2' identification - aligned files have 'X_1_2' ids
+real samples will be called ‘1991Panc_1.fq' and ‘1991Panc_2.fq' for paired reads - aligned to ‘1991Panc_1_2.SAM/BAM'
+
+1) download fq files 
+	- From BGI/PennNGS core to cluster directly using SCP, SFTP via command line 
+	- or GUI like FETCH
+
+2) QC assessment of fq files
+	1) FastQC
+
+	# jobscript_1_fastqc.sh
+
+	2) Fastx-toolkit - use filter function to remove reads with lower than N quality score (phred) 
+
+	# jobscript_2_fastx_filter.sh
+
+3) Alignment to mouse ref genome (mm9 for Exome as Exome capture kits are based on mm9)
+	1) Bowtie2 using —end-to-end —sensitive parameters
+	2) Use big MEM for alignment 
+
+	# jobscript_3_bowtie2_alignment.sh
+
+	2) I am currently piping bowtie2 to samtools directly
+
+4) SAM-BAM conversion
+	1) NO NEED As piping to SAM-BAM in previous step
+	2) using samtools view 
+
+	# jobscript_4_samtools_SAM-BAM_view.sh
+
+5) BAM sort 
+	1) samtools sort function
+	2) CRITICAL FOR VARIANT IDENTIFICATION STEPS - NEED SORTED FILE
+	
+	# jobscript_5_samtools_BAM_sorted.sh
+
+6) Reheadering of sorted BAM file (multistep process)
+	1) not sure why samtools doesn’t updated BAM file
+	
+	# jobscript_6_samtools_BAM_sorted_reheader1.sh
+	
+	2) open resulting sam file and edit “S0: unsorted” to “S0: sorted” in nano,vi (other text editor)
+	
+	# jobscript_7_samtools_BAM_sorted_reheader2.sh
+	
+	3) basically - this step corrects sorted header and applies to to sorted BAM header only
+	4) can delete X_1_2_originalheader.sam file afterwards 
+
+7) removal of PCR duplicates
+	1) samtools rmdup program
+	2) critical for CNV analysis due to PCR duplicates confounding CBS analysis
+	3) can not remove reads on separate chromosomes*
+	
+	# jobscript_8_samtools_pcr_duplicates.sh
+
+8) indexing of BAM file 
+	1) samtools index bam file
+	2) for fast random memory access during pileup
+
+	# jobscript_9_samtools_BAM_indexing.sh 
+ 
+9) Compiling various BAM files for SNP id downstream
+	1) use mpileup to create single file for normal-tumor sample pairs
+	2) using BED file from SureSelct exome capture kit (built on mm9)
+	3) pipping directly into BCFtools to call X_variants.vcf file 
+	
+	first - create bamlist of all bam files 
+	# jobscript_10_variants_bamlist.sh
+
+	ls *.srtd.reh.ddup.bam > bamlist.txt
+	
+	# jobscript_11_samtools_mpileup.sh
+
+10) variant annotation using snpEff
+	1) to annotate cancer samples 
+	2) create samples_cancer.txt file
+	3) this is because if germ line sample differs from reference - annotators will consider both germ line
+	and cancer samples as variants - even though the cancer is the only variant allele we care about 
+	4) this needs to be tab-seperate TXT file with two columns, e.g.:
+	Sample_01_germline 	Sample_01_somatic
+	Sample_02_germline	Sample_02_somatic
+	Sample_03_germline	Sample_03_somatic
+	etc…
+	
+	# jobscript_12_cancer_txt.sh	
+
+	5 run snpEff annotator with -cancer and -cancerSample options
+
+	# jobscript_13_snpeff_annotation.sh
+
+	this will generate annotate VCF file for all variants in samples
+	also will give html page for file statistics 
+	
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## prep work done before hand
+
+1. reference genome download and build (step 0.2 of cureffi.org walk through)  
+	a) wget http://hgdownload-test.sdsc.edu/goldenPath/mm9/bigZips/chromFa.tar.gz
+	b) gunzip chromFa.tar.gz
+	c) cat chr1.fa chr2.fa chr3.fa chr4.fa chr5.fa chr6.fa chr7.fa chr8.fa chr9.fa chr10.fa chr11.fa chr12.fa chr13.fa chr14.fa chr15.fa chr16.fa chr17.fa chr18.fa chr19.fa chr20.fa chr21.fa chr22.fa chrX.fa chrY.fa chrM.fa chr1_random.fa chr3_random.fa chr4_random.fa chr5_random.fa chr7_random.fa chr8_random.fa chr9_random.fa chr13_random chr16_random.fa chr17_random.fa chrX-random.fa chrY_random.fa  > mm9-bt2.fa
+
+	d) moved individual fa files to Chr_and_rand_contig_mm10-bt
+	e) samtools faidx mm9-bt2.fa (will generate mm10-bt2.fa.fai
+	f) copied mouse Bowtie2Index/ to Bowtie2Index_mm9/ in /home/dballi/bin
+	g) this is the mm9-bt2.fa.fai used throughout pipeline
+
